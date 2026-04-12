@@ -49,7 +49,7 @@ describe("mcpi server", () => {
     const { tools } = await harness.client.listTools();
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
-      expect(tool.description!.length).toBeGreaterThan(10);
+      expect(tool.description?.length ?? 0).toBeGreaterThan(10);
     }
 
     await harness.stop();
