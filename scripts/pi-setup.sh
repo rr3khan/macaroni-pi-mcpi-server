@@ -32,13 +32,25 @@ sudo apt-get install -y --no-install-recommends \
 echo "[ok] System packages installed"
 echo ""
 
-# --- 1Password CLI ---
+# --- 1Password CLI (v2.33+ required for op environment / op run --environment) ---
+OP_MIN_VERSION="2.33.0"
 if command -v op &>/dev/null; then
-  echo "[ok] 1Password CLI already installed: $(op --version)"
+  OP_CUR=$(op --version 2>/dev/null || echo "0.0.0")
+  echo "[ok] 1Password CLI installed: $OP_CUR"
+  if printf '%s\n%s\n' "$OP_MIN_VERSION" "$OP_CUR" | sort -V -C 2>/dev/null; then
+    echo "[ok] Version meets minimum ($OP_MIN_VERSION)"
+  else
+    echo "[!!] Version $OP_CUR is below minimum $OP_MIN_VERSION — upgrading..."
+    ARCH=$(dpkg --print-architecture 2>/dev/null || echo "arm64")
+    curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v2.33.1/op_linux_${ARCH}_v2.33.1.zip"
+    cd /tmp && unzip -o op.zip op && sudo mv op /usr/local/bin/op && sudo chmod +x /usr/local/bin/op
+    rm -f /tmp/op.zip
+    echo "[ok] Upgraded to: $(op --version)"
+  fi
 else
   echo "[..] Installing 1Password CLI..."
   ARCH=$(dpkg --print-architecture 2>/dev/null || echo "arm64")
-  curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v2.30.3/op_linux_${ARCH}_v2.30.3.zip"
+  curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v2.33.1/op_linux_${ARCH}_v2.33.1.zip"
   cd /tmp && unzip -o op.zip op && sudo mv op /usr/local/bin/op && sudo chmod +x /usr/local/bin/op
   rm -f /tmp/op.zip
   echo "[ok] 1Password CLI installed: $(op --version)"
