@@ -1,7 +1,8 @@
 # mcpi — Macaroni Pi MCP Server
 
 An MCP (Model Context Protocol) server for Raspberry Pi 5 that lets AI assistants
-monitor system health and manage secrets through 1Password.
+monitor system health and securely deploy services using secrets from 1Password —
+without the LLM ever seeing the secret values.
 
 ## What is MCP?
 
@@ -11,21 +12,25 @@ tools. An MCP server exposes **tools** that an AI can call over JSON-RPC — thi
 of it as a type-safe API designed specifically for AI agents.
 
 This project uses the **stdio transport**: the AI client spawns the server as a
-child process and communicates over stdin/stdout.
+child process and communicates over stdin/stdout. When running on a Pi, Cursor
+connects over SSH — the JSON-RPC traffic flows through the tunnel transparently.
 
 ## Project Stages
 
-**Stage 1 — System Monitoring (current)**
+**Stage 1 — System Monitoring**
 Expose Pi hardware data (CPU temp, memory, disk, network) as MCP tools so an AI
 assistant can answer questions like "How hot is my Pi?" or "How much disk space
 is left?".
 
-**Stage 2 — 1Password Security Gateway (planned)**
-Integrate with 1Password Service Accounts so secrets never live as plaintext on
-the Pi's disk. The AI can store, retrieve, rotate, and deploy secrets — all
-backed by 1Password.
+**Stage 2 — 1Password Security Gateway**
+Integrate with 1Password Environments so secrets never live as plaintext on
+the Pi's disk. The LLM can deploy and manage services with secrets securely
+injected via `op run`, but it can never read, write, or rotate secrets.
+Humans manage secrets in the 1Password desktop app.
 
 ## Available Tools
+
+### Stage 1: System Monitoring
 
 | Tool | Description | Pi-specific |
 |------|-------------|-------------|
@@ -35,6 +40,59 @@ backed by 1Password.
 | `get_disk_status` | All mounted filesystems: size, used, available in GB | -- |
 | `get_network_info` | Interfaces with IPs/MACs, primary IPv4 | WiFi SSID and signal via `iwconfig` |
 
+### Stage 2: 1Password Integration
+
+| Tool | Description | Security |
+|------|-------------|----------|
+| `get_op_status` | Checks if 1Password CLI is installed and authenticated | Read-only |
+| `list_environments` | Lists configured environments and variable **key names** | Never returns values |
+| `list_services` | Shows configured services with running/stopped status | Metadata only |
+| `deploy_service` | Starts a service with secrets injected via `op run` | LLM sees only success/failure |
+| `stop_service` | Stops a running service | Process management |
+| `query_service` | HTTP GET to a running service's local endpoint | Returns data, not secrets |
+
+## Security Model
+
+The LLM is an **operator**, not a **reader**:
+
+| Action | Allowed | Why |
+|--------|---------|-----|
+| List environment names and variable keys | Yes | Metadata only, no values |
+| Deploy a service with secrets injected | Yes | `op run` handles injection, LLM sees only success/failure |
+| Stop a service | Yes | Process management |
+| Query a running service for data | Yes | Weather data is not secret |
+| Read a secret value | **No** | No tool exists for this |
+| Write/edit/rotate secrets | **No** | Human-only in 1Password app |
+
+## Demo: Weather Station
+
+A complete demo showing secrets flowing from 1Password to a service without
+touching disk or the LLM:
+
+### Setup (one time)
+
+1. Get a free API key from [OpenWeatherMap](https://openweathermap.org/api_keys)
+2. In the 1Password desktop app, go to **Developer > View Environments**
+3. Create an environment called `pi-weather`
+4. Add a variable: `WEATHER_API_KEY` = your key
+5. Copy the environment ID and paste it in `services.json`
+6. Create a [1Password Service Account](https://developer.1password.com/docs/service-accounts/)
+   scoped to the `pi-weather` environment (read-only)
+7. On the Pi, set the service account token:
+   ```bash
+   export OP_SERVICE_ACCOUNT_TOKEN="your-token-here"
+   ```
+
+### Usage
+
+Ask the AI:
+- *"Deploy the weather station on the Pi"* → calls `deploy_service`
+- *"What's the weather in Toronto?"* → calls `query_service`
+- *"Stop the weather station"* → calls `stop_service`
+
+The API key flows from 1Password → `op run` → process env → OpenWeatherMap.
+It never appears in any MCP response, log, or file on disk.
+
 ## Quick Start
 
 **On a Raspberry Pi (first time, nothing installed):**
@@ -43,7 +101,8 @@ backed by 1Password.
 curl -fsSL https://raw.githubusercontent.com/rr3khan/macaroni-pi-mcpi-server/main/scripts/pi-setup.sh | bash
 ```
 
-This installs git, Node.js 20, system dependencies, clones the repo, builds, and runs tests.
+This installs git, Node.js 20, 1Password CLI, system dependencies, clones the
+repo, builds, and runs tests.
 
 **Or if you already have git:**
 
@@ -58,50 +117,61 @@ bash scripts/pi-setup.sh
 ```bash
 npm install
 npm run build
-npm test          # 19 tests across 6 files
+npm test          # 33 tests across 10 files
 ```
 
-## Testing with Cursor
+## Connecting Cursor to the Pi
 
-Add the following to your Cursor MCP config (`.cursor/mcp.json` in your home directory):
+Add to `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "mcpi": {
-      "command": "node",
-      "args": ["/absolute/path/to/macaroni-pi-mcpi-server/dist/index.js"]
+      "command": "ssh",
+      "args": [
+        "-o", "IdentitiesOnly=yes",
+        "-i", "~/.ssh/id_ed25519_pi",
+        "riyad-rpi5@rpi5.local",
+        "node",
+        "/home/riyad-rpi5/macaroni-pi-mcpi-server/dist/index.js"
+      ]
     }
   }
 }
 ```
 
-Then ask the AI: *"Use the mcpi server to get system info"* — it will call the
-`get_system_info` tool and return structured data about the host.
+Cursor spawns SSH, which runs the MCP server on the Pi. All JSON-RPC
+traffic flows over the SSH tunnel — the Pi reads real hardware data and
+connects to 1Password via the service account.
 
 ## Architecture
 
 ```
 src/
-  index.ts                 # Entry point — connects stdio transport
-  server.ts                # Creates McpServer, registers all tools
+  index.ts                  # Entry point — connects stdio transport
+  server.ts                 # Creates McpServer, registers all tools
   tools/
-    system-info.ts         # get_system_info
-    cpu.ts                 # get_cpu_status
-    memory.ts              # get_memory_status
-    disk.ts                # get_disk_status
-    network.ts             # get_network_info
+    system-info.ts          # get_system_info
+    cpu.ts                  # get_cpu_status
+    memory.ts               # get_memory_status
+    disk.ts                 # get_disk_status
+    network.ts              # get_network_info
+    op-status.ts            # get_op_status
+    environments.ts         # list_environments
+    services.ts             # deploy_service, stop_service, list_services
+    query-service.ts        # query_service
   providers/
-    pi-system.ts           # Shared abstraction for /sys, /proc, exec
+    pi-system.ts            # Abstraction for /sys, /proc, exec
+    onepassword.ts          # Abstraction for op CLI commands
+services/
+  weather-station.js        # Demo: weather API with injected secret
+services.json               # Maps service names to op environments
 tests/
-  server.test.ts           # Tool registration tests
-  tools/
-    *.test.ts              # Per-tool integration tests via MCP client
+  server.test.ts            # Tool registration tests
+  tools/*.test.ts           # Per-tool integration tests
+  services/*.test.ts        # Service-level tests
 ```
-
-Each tool is a self-contained module that registers itself on the server.
-The `pi-system` provider handles all platform-specific reads so tools
-degrade gracefully on non-Pi systems (macOS, generic Linux).
 
 ## Tech Stack
 
@@ -109,4 +179,5 @@ degrade gracefully on non-Pi systems (macOS, generic Linux).
 - **@modelcontextprotocol/sdk** — official MCP TypeScript SDK
 - **zod** — runtime schema validation for tool inputs
 - **vitest** — test framework with in-memory MCP client/server pairs
-- **stdio transport** — local process communication (no HTTP server needed)
+- **1Password CLI** (`op`) — secret injection via service accounts
+- **stdio transport** — local process communication over SSH

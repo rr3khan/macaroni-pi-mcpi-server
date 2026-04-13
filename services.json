@@ -1,0 +1,9 @@
+{
+  "weather-station": {
+    "command": "node",
+    "args": ["services/weather-station.js"],
+    "environment_id": "zp26o3gijazu4czprb53omydmm",
+    "port": 3100,
+    "description": "Fetches weather data using a securely injected API key from 1Password"
+  }
+}

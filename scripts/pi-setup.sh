@@ -25,10 +25,24 @@ sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
   git \
   curl \
+  unzip \
   wireless-tools \
   net-tools \
   2>/dev/null || true
 echo "[ok] System packages installed"
+echo ""
+
+# --- 1Password CLI ---
+if command -v op &>/dev/null; then
+  echo "[ok] 1Password CLI already installed: $(op --version)"
+else
+  echo "[..] Installing 1Password CLI..."
+  ARCH=$(dpkg --print-architecture 2>/dev/null || echo "arm64")
+  curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v2.30.3/op_linux_${ARCH}_v2.30.3.zip"
+  cd /tmp && unzip -o op.zip op && sudo mv op /usr/local/bin/op && sudo chmod +x /usr/local/bin/op
+  rm -f /tmp/op.zip
+  echo "[ok] 1Password CLI installed: $(op --version)"
+fi
 echo ""
 
 # --- Node.js ---

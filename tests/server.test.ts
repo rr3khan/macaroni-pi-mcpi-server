@@ -24,7 +24,7 @@ function connectTestClient() {
 }
 
 describe("mcpi server", () => {
-  it("exposes all Stage 1 tools", async () => {
+  it("exposes all Stage 1 and Stage 2 tools", async () => {
     const harness = connectTestClient();
     await harness.start();
 
@@ -32,11 +32,17 @@ describe("mcpi server", () => {
     const names = tools.map((t) => t.name).sort();
 
     expect(names).toEqual([
+      "deploy_service",
       "get_cpu_status",
       "get_disk_status",
       "get_memory_status",
       "get_network_info",
+      "get_op_status",
       "get_system_info",
+      "list_environments",
+      "list_services",
+      "query_service",
+      "stop_service",
     ]);
 
     await harness.stop();
