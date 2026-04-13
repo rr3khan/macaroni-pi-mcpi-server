@@ -85,56 +85,18 @@ export async function getEnvironmentVariableKeys(
     );
     const parsed: unknown = JSON.parse(stdout);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(
-      (v: { variable: string }) => v.variable,
-    );
+    return parsed
+      .map((v: Record<string, unknown>) => {
+        const key = v.variable ?? v.name ?? v.key;
+        return typeof key === "string" ? key : null;
+      })
+      .filter((k): k is string => k !== null);
   } catch {
     return [];
   }
 }
 
 const runningProcesses = new Map<string, ChildProcess>();
-
-export function spawnWithEnvironment(
-  serviceName: string,
-  config: ServiceConfig,
-): { success: boolean; error?: string } {
-  if (runningProcesses.has(serviceName)) {
-    return { success: false, error: `Service "${serviceName}" is already running` };
-  }
-
-  const child = spawn(
-    "op",
-    [
-      "run",
-      "--environment",
-      config.environment_id,
-      "--no-masking",
-      "--",
-      config.command,
-      ...config.args,
-    ],
-    {
-      cwd: PROJECT_ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
-    },
-  );
-
-  const stderrChunks: Buffer[] = [];
-  child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
-
-  child.on("exit", () => {
-    runningProcesses.delete(serviceName);
-  });
-
-  child.on("error", () => {
-    runningProcesses.delete(serviceName);
-  });
-
-  runningProcesses.set(serviceName, child);
-  return { success: true };
-}
 
 export async function spawnWithEnvironmentAndWait(
   serviceName: string,
