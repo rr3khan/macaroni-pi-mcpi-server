@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   loadServicesManifest,
-  spawnWithEnvironment,
+  spawnWithEnvironmentAndWait,
   stopService,
   isServiceRunning,
   getRunningServiceNames,
@@ -73,31 +73,36 @@ export function registerServicesTools(server: McpServer): void {
         };
       }
 
-      const result = spawnWithEnvironment(service, config);
+      const result = await spawnWithEnvironmentAndWait(service, config);
 
-      if (!result.success) {
+      if (!result.running) {
+        const errMsg = result.stderr || "No stderr captured";
         return {
           content: [
-            { type: "text" as const, text: JSON.stringify(result) },
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                success: false,
+                service,
+                port: config.port,
+                message: `Service "${service}" exited immediately`,
+                stderr: errMsg,
+              }),
+            },
           ],
           isError: true,
         };
       }
 
-      await new Promise((r) => setTimeout(r, 1500));
-
-      const running = isServiceRunning(service);
       return {
         content: [
           {
             type: "text" as const,
             text: JSON.stringify({
-              success: running,
+              success: true,
               service,
               port: config.port,
-              message: running
-                ? `Service "${service}" deployed on port ${config.port} with secrets from 1Password`
-                : `Service "${service}" started but may have exited — check logs`,
+              message: `Service "${service}" deployed on port ${config.port} with secrets from 1Password`,
             }),
           },
         ],

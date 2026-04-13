@@ -121,6 +121,9 @@ export function spawnWithEnvironment(
     },
   );
 
+  const stderrChunks: Buffer[] = [];
+  child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
   child.on("exit", () => {
     runningProcesses.delete(serviceName);
   });
@@ -131,6 +134,53 @@ export function spawnWithEnvironment(
 
   runningProcesses.set(serviceName, child);
   return { success: true };
+}
+
+export async function spawnWithEnvironmentAndWait(
+  serviceName: string,
+  config: ServiceConfig,
+  waitMs = 2000,
+): Promise<{ success: boolean; running: boolean; stderr: string }> {
+  if (runningProcesses.has(serviceName)) {
+    return { success: false, running: true, stderr: "" };
+  }
+
+  const child = spawn(
+    "op",
+    [
+      "run",
+      "--environment",
+      config.environment_id,
+      "--no-masking",
+      "--",
+      config.command,
+      ...config.args,
+    ],
+    {
+      cwd: PROJECT_ROOT,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: false,
+    },
+  );
+
+  const stderrChunks: Buffer[] = [];
+  child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+  child.on("exit", () => {
+    runningProcesses.delete(serviceName);
+  });
+
+  child.on("error", () => {
+    runningProcesses.delete(serviceName);
+  });
+
+  runningProcesses.set(serviceName, child);
+
+  await new Promise((r) => setTimeout(r, waitMs));
+
+  const running = child.exitCode === null && !child.killed;
+  const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
+  return { success: true, running, stderr };
 }
 
 export function stopService(

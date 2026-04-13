@@ -32,27 +32,33 @@ sudo apt-get install -y --no-install-recommends \
 echo "[ok] System packages installed"
 echo ""
 
-# --- 1Password CLI (v2.33+ required for op environment / op run --environment) ---
-OP_MIN_VERSION="2.33.0"
+# --- 1Password CLI (beta required for `op run --environment`) ---
+# The --environment flag is only in beta builds (>= 2.33.0-beta.02).
+# Stable releases do NOT have it. See:
+# https://developer.1password.com/docs/environments/read-environment-variables#cli
+OP_BETA_VERSION="2.34.1-beta.01"
+install_op_beta() {
+  local arch
+  arch=$(dpkg --print-architecture 2>/dev/null || echo "arm64")
+  echo "[..] Downloading 1Password CLI beta ${OP_BETA_VERSION} (${arch})..."
+  curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_BETA_VERSION}/op_linux_${arch}_v${OP_BETA_VERSION}.zip"
+  cd /tmp && unzip -o op.zip op && sudo mv op /usr/local/bin/op && sudo chmod +x /usr/local/bin/op
+  rm -f /tmp/op.zip
+}
+
 if command -v op &>/dev/null; then
   OP_CUR=$(op --version 2>/dev/null || echo "0.0.0")
   echo "[ok] 1Password CLI installed: $OP_CUR"
-  if printf '%s\n%s\n' "$OP_MIN_VERSION" "$OP_CUR" | sort -V -C 2>/dev/null; then
-    echo "[ok] Version meets minimum ($OP_MIN_VERSION)"
+  if op run --help 2>&1 | grep -q -- '--environment'; then
+    echo "[ok] --environment flag available"
   else
-    echo "[!!] Version $OP_CUR is below minimum $OP_MIN_VERSION — upgrading..."
-    ARCH=$(dpkg --print-architecture 2>/dev/null || echo "arm64")
-    curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v2.33.1/op_linux_${ARCH}_v2.33.1.zip"
-    cd /tmp && unzip -o op.zip op && sudo mv op /usr/local/bin/op && sudo chmod +x /usr/local/bin/op
-    rm -f /tmp/op.zip
+    echo "[!!] --environment flag missing — upgrading to beta..."
+    install_op_beta
     echo "[ok] Upgraded to: $(op --version)"
   fi
 else
-  echo "[..] Installing 1Password CLI..."
-  ARCH=$(dpkg --print-architecture 2>/dev/null || echo "arm64")
-  curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v2.33.1/op_linux_${ARCH}_v2.33.1.zip"
-  cd /tmp && unzip -o op.zip op && sudo mv op /usr/local/bin/op && sudo chmod +x /usr/local/bin/op
-  rm -f /tmp/op.zip
+  echo "[..] Installing 1Password CLI (beta)..."
+  install_op_beta
   echo "[ok] 1Password CLI installed: $(op --version)"
 fi
 echo ""

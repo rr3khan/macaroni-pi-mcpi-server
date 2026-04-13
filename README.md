@@ -101,8 +101,14 @@ It never appears in any MCP response, log, or file on disk.
 curl -fsSL https://raw.githubusercontent.com/rr3khan/macaroni-pi-mcpi-server/main/scripts/pi-setup.sh | bash
 ```
 
-This installs git, Node.js 20, 1Password CLI, system dependencies, clones the
-repo, builds, and runs tests.
+This installs git, Node.js 20, the **1Password CLI beta**, system dependencies,
+clones the repo, builds, and runs tests.
+
+> **Why the beta CLI?** The `op run --environment` flag — which injects secrets
+> from 1Password Environments into a child process — is only available in beta
+> builds (`>= 2.33.0-beta.02`). Stable releases do not include it. See
+> [the 1Password docs](https://developer.1password.com/docs/environments/read-environment-variables#cli)
+> for details.
 
 **Or if you already have git:**
 
@@ -117,31 +123,76 @@ bash scripts/pi-setup.sh
 ```bash
 npm install
 npm run build
-npm test          # 33 tests across 10 files
+npm test
 ```
 
 ## Connecting Cursor to the Pi
 
-Add to `~/.cursor/mcp.json`:
+Cursor talks to the MCP server over SSH. The config below uses `bash -c` on
+your Mac to:
+1. Read the 1Password Service Account token locally via `op read`
+2. SSH into the Pi, passing the token as an environment variable
+3. Start the MCP server on the Pi with `OP_SERVICE_ACCOUNT_TOKEN` set
+
+This means the token is never stored on the Pi's disk — it only lives in the
+process environment for the duration of the session.
+
+### Generic template
+
+Add to your `~/.cursor/mcp.json` (fill in the placeholders):
 
 ```json
 {
   "mcpServers": {
     "mcpi": {
-      "command": "ssh",
+      "command": "bash",
       "args": [
-        "-o", "IdentitiesOnly=yes",
-        "-i", "~/.ssh/id_ed25519_pi",
-        "riyad-rpi5@rpi5.local",
-        "node",
-        "/home/riyad-rpi5/macaroni-pi-mcpi-server/dist/index.js"
+        "-c",
+        "TOKEN=$(op read 'op://<VAULT>/<SERVICE_ACCOUNT_ITEM>/credential') && ssh -o IdentitiesOnly=yes -i <SSH_KEY_PATH> <PI_USER>@<PI_HOST> \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node <INSTALL_DIR>/dist/index.js\""
       ]
     }
   }
 }
 ```
 
-Cursor spawns SSH, which runs the MCP server on the Pi. All JSON-RPC
+| Placeholder | Description | Example |
+|-------------|-------------|---------|
+| `<VAULT>` | 1Password vault containing the service account | `Private` |
+| `<SERVICE_ACCOUNT_ITEM>` | Item name for the service account token | `MACARONI_MCPI_DEMO_SERVICE_ACCOUNT` |
+| `<SSH_KEY_PATH>` | Path to your SSH private key for the Pi | `~/.ssh/id_ed25519_pi` |
+| `<PI_USER>` | Username on the Pi | `riyad-rpi5` |
+| `<PI_HOST>` | Hostname or IP of the Pi | `rpi5.local` |
+| `<INSTALL_DIR>` | Where the repo lives on the Pi | `/home/riyad-rpi5/macaroni-pi-mcpi-server` |
+
+### Real example
+
+```json
+{
+  "mcpServers": {
+    "mcpi": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "TOKEN=$(op read 'op://Private/MACARONI_MCPI_DEMO_SERVICE_ACCOUNT/credential') && ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519_pi riyad-rpi5@rpi5.local \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node /home/riyad-rpi5/macaroni-pi-mcpi-server/dist/index.js\""
+      ]
+    }
+  }
+}
+```
+
+### Prerequisites
+
+- **SSH key auth** to the Pi (passwordless). Set up with `ssh-copy-id`:
+  ```bash
+  ssh-copy-id -i ~/.ssh/id_ed25519_pi riyad-rpi5@rpi5.local
+  ```
+- **1Password desktop app** running on your Mac with CLI integration enabled
+  (Settings > Developer > Integrate with 1Password CLI)
+- **Service account** created in 1Password with read access to the
+  environment(s) your services use
+
+Cursor spawns the `bash -c` command, which reads the service account token
+locally, then SSHs into the Pi and starts the MCP server. All JSON-RPC
 traffic flows over the SSH tunnel — the Pi reads real hardware data and
 connects to 1Password via the service account.
 
@@ -179,5 +230,5 @@ tests/
 - **@modelcontextprotocol/sdk** — official MCP TypeScript SDK
 - **zod** — runtime schema validation for tool inputs
 - **vitest** — test framework with in-memory MCP client/server pairs
-- **1Password CLI** (`op`) — secret injection via service accounts
+- **1Password CLI** (`op`, beta) — secret injection via `op run --environment`
 - **stdio transport** — local process communication over SSH
