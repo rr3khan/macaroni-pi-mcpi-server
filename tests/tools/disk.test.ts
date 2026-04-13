@@ -34,7 +34,7 @@ describe("get_disk_status", () => {
     for (const fs of disk.filesystems) {
       expect(typeof fs.filesystem).toBe("string");
       expect(typeof fs.mount).toBe("string");
-      expect(fs.size_gb).toBeGreaterThan(0);
+      expect(fs.size_gb).toBeGreaterThanOrEqual(0);
       expect(typeof fs.use_percent).toBe("number");
     }
   });

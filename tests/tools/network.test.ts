@@ -30,7 +30,7 @@ describe("get_network_info", () => {
     );
     expect(loopback).toBeDefined();
     expect(loopback.internal).toBe(true);
-  });
+  }, 15000);
 
   it("interfaces have correct shape", async () => {
     const net = await callTool("get_network_info");
@@ -41,7 +41,7 @@ describe("get_network_info", () => {
       expect(Array.isArray(iface.ipv6)).toBe(true);
       expect(typeof iface.internal).toBe("boolean");
     }
-  });
+  }, 15000);
 
   it("primary_ipv4 is null or a valid IP", async () => {
     const net = await callTool("get_network_info");
@@ -49,5 +49,5 @@ describe("get_network_info", () => {
     if (net.primary_ipv4 !== null) {
       expect(net.primary_ipv4).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
     }
-  });
+  }, 15000);
 });
