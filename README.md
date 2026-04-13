@@ -37,6 +37,18 @@ backed by 1Password.
 
 ## Quick Start
 
+**On a Raspberry Pi (first time):**
+
+```bash
+git clone https://github.com/rr3khan/macaroni-pi-mcpi-server.git
+cd macaroni-pi-mcpi-server
+bash scripts/pi-setup.sh
+```
+
+This installs Node.js 20, system dependencies, npm packages, builds, and runs tests.
+
+**On macOS / generic Linux (already have Node.js):**
+
 ```bash
 npm install
 npm run build
