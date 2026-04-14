@@ -39,6 +39,7 @@ describe("mcpi server", () => {
       "get_network_info",
       "get_op_status",
       "get_system_info",
+      "health_check",
       "list_environments",
       "list_services",
       "query_service",
