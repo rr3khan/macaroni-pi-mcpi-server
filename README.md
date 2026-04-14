@@ -51,6 +51,12 @@ Humans manage secrets in the 1Password desktop app.
 | `stop_service` | Stops a running service | Process management |
 | `query_service` | HTTP GET to a running service's local endpoint | Returns data, not secrets |
 
+### Diagnostics
+
+| Tool | Description |
+|------|-------------|
+| `health_check` | Verifies Node.js, op CLI, authentication, services.json, SD card wear, disk usage, and runtime status |
+
 ## Security Model
 
 The LLM is an **operator**, not a **reader**:
@@ -128,14 +134,28 @@ npm test
 
 ## Connecting Cursor to the Pi
 
-Cursor talks to the MCP server over SSH. The config below uses `bash -c` on
-your Mac to:
-1. Read the 1Password Service Account token locally via `op read`
-2. SSH into the Pi, passing the token as an environment variable
-3. Start the MCP server on the Pi with `OP_SERVICE_ACCOUNT_TOKEN` set
+Cursor talks to the MCP server over SSH. The launcher command on your Mac:
+1. Reads the 1Password Service Account token locally via `op read`
+2. SSHs into the Pi, passing the token as an environment variable
+3. Starts the MCP server on the Pi with `OP_SERVICE_ACCOUNT_TOKEN` set
 
-This means the token is never stored on the Pi's disk — it only lives in the
-process environment for the duration of the session.
+The token is never stored on the Pi's disk — it only lives in the process
+environment for the duration of the session.
+
+The launcher includes step-by-step diagnostic logging (`[mcpi-launcher]`
+messages on stderr) so connection failures pinpoint the exact stage that
+failed, and SSH keepalives to detect dead connections.
+
+### Prerequisites
+
+- **1Password desktop app** running on your Mac with CLI integration enabled
+  (Settings > Developer > Integrate with 1Password CLI)
+- **1Password SSH agent** enabled
+  (Settings > Developer > Use the SSH Agent)
+- **SSH key** for the Pi stored in 1Password (not on disk) — see
+  [SSH key management via 1Password](#ssh-key-management-via-1password) below
+- **Service account** created in 1Password with read access to the
+  environment(s) your services use
 
 ### Generic template
 
@@ -148,7 +168,7 @@ Add to your `~/.cursor/mcp.json` (fill in the placeholders):
       "command": "bash",
       "args": [
         "-c",
-        "TOKEN=$(op read 'op://<VAULT>/<SERVICE_ACCOUNT_ITEM>/credential') && ssh -o IdentitiesOnly=yes -i <SSH_KEY_PATH> <PI_USER>@<PI_HOST> \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node <INSTALL_DIR>/dist/index.js\""
+        "echo '[mcpi-launcher] fetching token from 1Password...' >&2; TOKEN=$(op read 'op://<VAULT>/<SERVICE_ACCOUNT_ITEM>/credential' 2>&1) || { echo \"[mcpi-launcher] ERROR: op read failed: $TOKEN\" >&2; exit 1; }; echo '[mcpi-launcher] token OK, connecting to Pi via SSH...' >&2; ssh -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 <PI_USER>@<PI_HOST> \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node <INSTALL_DIR>/dist/index.js\"; EXIT_CODE=$?; echo \"[mcpi-launcher] ERROR: ssh/node exited with code $EXIT_CODE\" >&2; exit $EXIT_CODE"
       ]
     }
   }
@@ -159,7 +179,6 @@ Add to your `~/.cursor/mcp.json` (fill in the placeholders):
 |-------------|-------------|---------|
 | `<VAULT>` | 1Password vault containing the service account | `Private` |
 | `<SERVICE_ACCOUNT_ITEM>` | Item name for the service account token | `MACARONI_MCPI_DEMO_SERVICE_ACCOUNT` |
-| `<SSH_KEY_PATH>` | Path to your SSH private key for the Pi | `~/.ssh/id_ed25519_pi` |
 | `<PI_USER>` | Username on the Pi | `riyad-rpi5` |
 | `<PI_HOST>` | Hostname or IP of the Pi | `rpi5.local` |
 | `<INSTALL_DIR>` | Where the repo lives on the Pi | `/home/riyad-rpi5/macaroni-pi-mcpi-server` |
@@ -173,35 +192,73 @@ Add to your `~/.cursor/mcp.json` (fill in the placeholders):
       "command": "bash",
       "args": [
         "-c",
-        "TOKEN=$(op read 'op://Private/MACARONI_MCPI_DEMO_SERVICE_ACCOUNT/credential') && ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519_pi riyad-rpi5@rpi5.local \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node /home/riyad-rpi5/macaroni-pi-mcpi-server/dist/index.js\""
+        "echo '[mcpi-launcher] fetching token from 1Password...' >&2; TOKEN=$(op read 'op://Private/MACARONI_MCPI_DEMO_SERVICE_ACCOUNT/credential' 2>&1) || { echo \"[mcpi-launcher] ERROR: op read failed: $TOKEN\" >&2; exit 1; }; echo '[mcpi-launcher] token OK, connecting to Pi via SSH...' >&2; ssh -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 riyad-rpi5@rpi5.local \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node /home/riyad-rpi5/macaroni-pi-mcpi-server/dist/index.js\"; EXIT_CODE=$?; echo \"[mcpi-launcher] ERROR: ssh/node exited with code $EXIT_CODE\" >&2; exit $EXIT_CODE"
       ]
     }
   }
 }
 ```
 
-### Prerequisites
-
-- **SSH key auth** to the Pi (passwordless). Set up with `ssh-copy-id`:
-  ```bash
-  ssh-copy-id -i ~/.ssh/id_ed25519_pi riyad-rpi5@rpi5.local
-  ```
-- **1Password desktop app** running on your Mac with CLI integration enabled
-  (Settings > Developer > Integrate with 1Password CLI)
-- **Service account** created in 1Password with read access to the
-  environment(s) your services use
-
 Cursor spawns the `bash -c` command, which reads the service account token
 locally, then SSHs into the Pi and starts the MCP server. All JSON-RPC
 traffic flows over the SSH tunnel — the Pi reads real hardware data and
 connects to 1Password via the service account.
 
+### SSH key management via 1Password
+
+Instead of storing SSH keys as unencrypted files on disk, use the
+**1Password SSH agent** and **SSH Bookmarks** to serve keys from your vault.
+This eliminates unencrypted key files (which tools like Kolide flag) and
+avoids "too many authentication failures" errors by pinning the correct key
+to each host.
+
+#### Setup
+
+1. **Import your SSH key into 1Password**: In the 1Password desktop app,
+   go to File > Import and select your SSH private key.
+
+2. **Enable the 1Password SSH agent**: In 1Password, go to
+   Settings > Developer and enable "Use the SSH Agent".
+
+3. **Configure your SSH client** to use the 1Password agent. Add to
+   `~/.ssh/config`:
+   ```
+   Host *
+       IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+   ```
+
+4. **Create an SSH Bookmark** to pin the key to your Pi. Edit the SSH key
+   item in 1Password and add a custom URL field:
+   ```
+   ssh://<PI_USER>@<PI_HOST>
+   ```
+   For example: `ssh://riyad-rpi5@rpi5.local`
+
+5. **Enable SSH config file generation**: In 1Password, go to
+   Settings > Developer > Advanced and enable "Generate SSH config files
+   from 1Password SSH bookmarks". Then add this to the top of
+   `~/.ssh/config`:
+   ```
+   Include ~/.ssh/1Password/config
+   ```
+
+6. **Delete the unencrypted key from disk** (only after verifying the
+   1Password agent works):
+   ```bash
+   ssh <PI_USER>@<PI_HOST> "echo 'it works!'"
+   rm ~/.ssh/id_ed25519_pi ~/.ssh/id_ed25519_pi.pub
+   ```
+
+For full details, see the
+[1Password SSH Bookmarks documentation](https://developer.1password.com/docs/ssh/bookmarks/).
+
 ## Architecture
 
 ```
 src/
-  index.ts                  # Entry point — connects stdio transport
+  index.ts                  # Entry point — crash handlers, graceful shutdown
   server.ts                 # Creates McpServer, registers all tools
+  logger.ts                 # Structured logging (stderr + ~/logs/mcpi-server.log)
   tools/
     system-info.ts          # get_system_info
     cpu.ts                  # get_cpu_status
@@ -212,12 +269,14 @@ src/
     environments.ts         # list_environments
     services.ts             # deploy_service, stop_service, list_services
     query-service.ts        # query_service
+    health-check.ts         # health_check — dependency and filesystem verification
   providers/
     pi-system.ts            # Abstraction for /sys, /proc, exec
     onepassword.ts          # Abstraction for op CLI commands
 services/
   weather-station.js        # Demo: weather API with injected secret
 services.json               # Maps service names to op environments
+logs/                       # Runtime logs (auto-created, gitignored)
 tests/
   server.test.ts            # Tool registration tests
   tools/*.test.ts           # Per-tool integration tests

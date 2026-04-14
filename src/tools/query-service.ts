@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   loadServicesManifest,
   isServiceRunning,
+  getLastServiceError,
 } from "../providers/onepassword.js";
 
 export function registerQueryServiceTool(server: McpServer): void {
@@ -32,13 +33,15 @@ export function registerQueryServiceTool(server: McpServer): void {
       }
 
       if (!isServiceRunning(service)) {
+        const lastError = getLastServiceError(service);
+        const msg = lastError
+          ? `Service "${service}" is not running. Last exit: code ${lastError.code}. ${lastError.stderr}`
+          : `Service "${service}" is not running. Deploy it first.`;
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({
-                error: `Service "${service}" is not running. Deploy it first.`,
-              }),
+              text: JSON.stringify({ error: msg }),
             },
           ],
           isError: true,

@@ -14,7 +14,9 @@ import { readFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { createLogger } from "../logger.js";
 
+const log = createLogger("onepassword");
 const execFileAsync = promisify(execFile);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,10 +40,16 @@ export async function getOpStatus(): Promise<OpStatus> {
         timeout: 10000,
       });
       return { installed: true, version, authenticated: true };
-    } catch {
+    } catch (err) {
+      log.warn("op installed but not authenticated", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return { installed: true, version, authenticated: false };
     }
-  } catch {
+  } catch (err) {
+    log.warn("op CLI not available", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { installed: false, version: null, authenticated: false };
   }
 }
@@ -57,13 +65,17 @@ export interface ServiceConfig {
 export type ServicesManifest = Record<string, ServiceConfig>;
 
 export async function loadServicesManifest(): Promise<ServicesManifest> {
+  const manifestPath = resolve(PROJECT_ROOT, "services.json");
   try {
-    const raw = await readFile(
-      resolve(PROJECT_ROOT, "services.json"),
-      "utf-8",
-    );
-    return JSON.parse(raw) as ServicesManifest;
-  } catch {
+    const raw = await readFile(manifestPath, "utf-8");
+    const manifest = JSON.parse(raw) as ServicesManifest;
+    log.debug("loaded services manifest", { path: manifestPath, count: Object.keys(manifest).length });
+    return manifest;
+  } catch (err) {
+    log.warn("failed to load services.json", {
+      path: manifestPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return {};
   }
 }
@@ -91,17 +103,22 @@ export async function getEnvironmentVariableKeys(
         return typeof key === "string" ? key : null;
       })
       .filter((k): k is string => k !== null);
-  } catch {
+  } catch (err) {
+    log.warn("failed to get environment variable keys", {
+      envId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 }
 
 const runningProcesses = new Map<string, ChildProcess>();
+const lastServiceError = new Map<string, { code: number | null; stderr: string }>();
 
 export async function spawnWithEnvironmentAndWait(
   serviceName: string,
   config: ServiceConfig,
-  waitMs = 2000,
+  waitMs = 5000,
 ): Promise<{ success: boolean; running: boolean; stderr: string }> {
   if (runningProcesses.has(serviceName)) {
     return { success: false, running: true, stderr: "" };
@@ -128,20 +145,35 @@ export async function spawnWithEnvironmentAndWait(
   const stderrChunks: Buffer[] = [];
   child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
-  child.on("exit", () => {
+  lastServiceError.delete(serviceName);
+
+  child.on("exit", (code, signal) => {
+    const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
+    log.info(`service "${serviceName}" exited`, { code, signal, stderr: stderr || undefined });
+    if (code !== 0 && code !== null) {
+      lastServiceError.set(serviceName, { code, stderr });
+    }
     runningProcesses.delete(serviceName);
   });
 
-  child.on("error", () => {
+  child.on("error", (err) => {
+    log.error(`service "${serviceName}" spawn error`, { error: err.message });
+    lastServiceError.set(serviceName, { code: null, stderr: err.message });
     runningProcesses.delete(serviceName);
   });
 
   runningProcesses.set(serviceName, child);
+  log.info(`spawned service "${serviceName}", waiting ${waitMs}ms`, { pid: child.pid, port: config.port });
 
   await new Promise((r) => setTimeout(r, waitMs));
 
   const running = child.exitCode === null && !child.killed;
   const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
+
+  if (!running) {
+    log.error(`service "${serviceName}" died within ${waitMs}ms`, { exitCode: child.exitCode, stderr });
+  }
+
   return { success: true, running, stderr };
 }
 
@@ -155,6 +187,7 @@ export function stopService(
 
   child.kill("SIGTERM");
   runningProcesses.delete(serviceName);
+  log.info(`stopped service "${serviceName}"`);
   return { success: true };
 }
 
@@ -166,4 +199,10 @@ export function isServiceRunning(serviceName: string): boolean {
 
 export function getRunningServiceNames(): string[] {
   return [...runningProcesses.keys()].filter(isServiceRunning);
+}
+
+export function getLastServiceError(
+  serviceName: string,
+): { code: number | null; stderr: string } | null {
+  return lastServiceError.get(serviceName) ?? null;
 }

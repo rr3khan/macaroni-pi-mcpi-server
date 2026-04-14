@@ -8,14 +8,19 @@
 import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createLogger } from "../logger.js";
 
+const log = createLogger("pi-system");
 const execFileAsync = promisify(execFile);
 
 export async function readSysFile(path: string): Promise<string | null> {
   try {
     const content = await readFile(path, "utf-8");
     return content.trim();
-  } catch {
+  } catch (err) {
+    log.debug(`readSysFile failed: ${path}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -27,7 +32,10 @@ export async function execCommand(
   try {
     const { stdout } = await execFileAsync(cmd, args, { timeout: 5000 });
     return stdout.trim();
-  } catch {
+  } catch (err) {
+    log.debug(`execCommand failed: ${cmd} ${args.join(" ")}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
