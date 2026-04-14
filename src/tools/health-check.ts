@@ -1,6 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { readFile, appendFile, mkdir } from "node:fs/promises";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createLogger } from "../logger.js";
 import { execCommand, readSysFile } from "../providers/pi-system.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const log = createLogger("health-check");
 
@@ -44,7 +49,7 @@ async function checkBinary(
     return { name, status: "corrupt", version: null, path, detail: `${path} appears corrupt: ${raw}` };
   }
 
-  if (!raw.includes("ELF") && !raw.includes("executable") && !raw.includes("script")) {
+  if (!raw.includes("ELF") && !raw.includes("Mach-O") && !raw.includes("executable") && !raw.includes("script")) {
     return { name, status: "corrupt", version: null, path, detail: `Unexpected file type: ${raw}` };
   }
 
@@ -71,17 +76,12 @@ async function checkOpAuth(): Promise<DepCheck> {
 }
 
 async function checkServicesJson(): Promise<DepCheck> {
-  const { readFile } = await import("node:fs/promises");
-  const { resolve, dirname } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-
-  const __dirname = dirname(fileURLToPath(import.meta.url));
   const manifestPath = resolve(__dirname, "../../services.json");
 
   try {
     const raw = await readFile(manifestPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    const count = Object.keys(parsed).length;
+    const parsed: unknown = JSON.parse(raw);
+    const count = typeof parsed === "object" && parsed !== null ? Object.keys(parsed).length : 0;
     return {
       name: "services.json",
       status: "ok",
@@ -101,11 +101,6 @@ async function checkServicesJson(): Promise<DepCheck> {
 }
 
 async function checkLogsWritable(): Promise<boolean> {
-  const { appendFile, mkdir } = await import("node:fs/promises");
-  const { resolve, dirname } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-
-  const __dirname = dirname(fileURLToPath(import.meta.url));
   const logDir = resolve(__dirname, "../../logs");
 
   try {
@@ -141,10 +136,13 @@ async function getSdCardHealth(): Promise<string | null> {
 }
 
 async function runHealthCheck(): Promise<HealthReport> {
+  const nodePath = await execCommand("which", ["node"]) ?? "/usr/local/bin/node";
+  const opPath = await execCommand("which", ["op"]) ?? "/usr/local/bin/op";
+
   const [node, op, opAuth, servicesJson, logsWritable, rootUsage, sdHealth] =
     await Promise.all([
-      checkBinary("node", "/usr/local/bin/node", ["--version"]),
-      checkBinary("op", "/usr/local/bin/op", ["--version"]),
+      checkBinary("node", nodePath, ["--version"]),
+      checkBinary("op", opPath, ["--version"]),
       checkOpAuth(),
       checkServicesJson(),
       checkLogsWritable(),

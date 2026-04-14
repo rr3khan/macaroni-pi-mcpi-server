@@ -168,7 +168,7 @@ Add to your `~/.cursor/mcp.json` (fill in the placeholders):
       "command": "bash",
       "args": [
         "-c",
-        "echo '[mcpi-launcher] fetching token from 1Password...' >&2; TOKEN=$(op read 'op://<VAULT>/<SERVICE_ACCOUNT_ITEM>/credential' 2>&1) || { echo \"[mcpi-launcher] ERROR: op read failed: $TOKEN\" >&2; exit 1; }; echo '[mcpi-launcher] token OK, connecting to Pi via SSH...' >&2; ssh -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 <PI_USER>@<PI_HOST> \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node <INSTALL_DIR>/dist/index.js\" 2>&1; EXIT_CODE=$?; echo \"[mcpi-launcher] ERROR: ssh/node exited with code $EXIT_CODE\" >&2; exit $EXIT_CODE"
+        "echo '[mcpi-launcher] fetching token from 1Password...' >&2; TOKEN=$(op read 'op://<VAULT>/<SERVICE_ACCOUNT_ITEM>/credential' 2>&1) || { echo \"[mcpi-launcher] ERROR: op read failed: $TOKEN\" >&2; exit 1; }; echo '[mcpi-launcher] token OK, connecting to Pi via SSH...' >&2; ssh -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 <PI_USER>@<PI_HOST> \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node <INSTALL_DIR>/dist/index.js\"; EXIT_CODE=$?; echo \"[mcpi-launcher] ERROR: ssh/node exited with code $EXIT_CODE\" >&2; exit $EXIT_CODE"
       ]
     }
   }
@@ -192,7 +192,7 @@ Add to your `~/.cursor/mcp.json` (fill in the placeholders):
       "command": "bash",
       "args": [
         "-c",
-        "echo '[mcpi-launcher] fetching token from 1Password...' >&2; TOKEN=$(op read 'op://Private/MACARONI_MCPI_DEMO_SERVICE_ACCOUNT/credential' 2>&1) || { echo \"[mcpi-launcher] ERROR: op read failed: $TOKEN\" >&2; exit 1; }; echo '[mcpi-launcher] token OK, connecting to Pi via SSH...' >&2; ssh -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 riyad-rpi5@rpi5.local \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node /home/riyad-rpi5/macaroni-pi-mcpi-server/dist/index.js\" 2>&1; EXIT_CODE=$?; echo \"[mcpi-launcher] ERROR: ssh/node exited with code $EXIT_CODE\" >&2; exit $EXIT_CODE"
+        "echo '[mcpi-launcher] fetching token from 1Password...' >&2; TOKEN=$(op read 'op://Private/MACARONI_MCPI_DEMO_SERVICE_ACCOUNT/credential' 2>&1) || { echo \"[mcpi-launcher] ERROR: op read failed: $TOKEN\" >&2; exit 1; }; echo '[mcpi-launcher] token OK, connecting to Pi via SSH...' >&2; ssh -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 riyad-rpi5@rpi5.local \"OP_SERVICE_ACCOUNT_TOKEN=$TOKEN node /home/riyad-rpi5/macaroni-pi-mcpi-server/dist/index.js\"; EXIT_CODE=$?; echo \"[mcpi-launcher] ERROR: ssh/node exited with code $EXIT_CODE\" >&2; exit $EXIT_CODE"
       ]
     }
   }

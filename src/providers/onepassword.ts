@@ -97,9 +97,12 @@ export async function getEnvironmentVariableKeys(
     );
     const parsed: unknown = JSON.parse(stdout);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(
-      (v: { variable: string }) => v.variable,
-    );
+    return parsed
+      .map((v: Record<string, unknown>) => {
+        const key = v.variable ?? v.name ?? v.key;
+        return typeof key === "string" ? key : null;
+      })
+      .filter((k): k is string => k !== null);
   } catch (err) {
     log.warn("failed to get environment variable keys", {
       envId,
