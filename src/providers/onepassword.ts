@@ -110,55 +110,12 @@ export async function getEnvironmentVariableKeys(
 }
 
 const runningProcesses = new Map<string, ChildProcess>();
-
-export function spawnWithEnvironment(
-  serviceName: string,
-  config: ServiceConfig,
-): { success: boolean; error?: string } {
-  if (runningProcesses.has(serviceName)) {
-    return { success: false, error: `Service "${serviceName}" is already running` };
-  }
-
-  const child = spawn(
-    "op",
-    [
-      "run",
-      "--environment",
-      config.environment_id,
-      "--no-masking",
-      "--",
-      config.command,
-      ...config.args,
-    ],
-    {
-      cwd: PROJECT_ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
-    },
-  );
-
-  const stderrChunks: Buffer[] = [];
-  child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
-
-  child.on("exit", (code, signal) => {
-    log.info(`service "${serviceName}" exited`, { code, signal });
-    runningProcesses.delete(serviceName);
-  });
-
-  child.on("error", (err) => {
-    log.error(`service "${serviceName}" spawn error`, { error: err.message });
-    runningProcesses.delete(serviceName);
-  });
-
-  runningProcesses.set(serviceName, child);
-  log.info(`spawned service "${serviceName}"`, { pid: child.pid, port: config.port });
-  return { success: true };
-}
+const lastServiceError = new Map<string, { code: number | null; stderr: string }>();
 
 export async function spawnWithEnvironmentAndWait(
   serviceName: string,
   config: ServiceConfig,
-  waitMs = 2000,
+  waitMs = 5000,
 ): Promise<{ success: boolean; running: boolean; stderr: string }> {
   if (runningProcesses.has(serviceName)) {
     return { success: false, running: true, stderr: "" };
@@ -185,13 +142,20 @@ export async function spawnWithEnvironmentAndWait(
   const stderrChunks: Buffer[] = [];
   child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
+  lastServiceError.delete(serviceName);
+
   child.on("exit", (code, signal) => {
-    log.info(`service "${serviceName}" exited`, { code, signal });
+    const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
+    log.info(`service "${serviceName}" exited`, { code, signal, stderr: stderr || undefined });
+    if (code !== 0 && code !== null) {
+      lastServiceError.set(serviceName, { code, stderr });
+    }
     runningProcesses.delete(serviceName);
   });
 
   child.on("error", (err) => {
     log.error(`service "${serviceName}" spawn error`, { error: err.message });
+    lastServiceError.set(serviceName, { code: null, stderr: err.message });
     runningProcesses.delete(serviceName);
   });
 
@@ -232,4 +196,10 @@ export function isServiceRunning(serviceName: string): boolean {
 
 export function getRunningServiceNames(): string[] {
   return [...runningProcesses.keys()].filter(isServiceRunning);
+}
+
+export function getLastServiceError(
+  serviceName: string,
+): { code: number | null; stderr: string } | null {
+  return lastServiceError.get(serviceName) ?? null;
 }
