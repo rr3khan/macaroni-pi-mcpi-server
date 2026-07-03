@@ -1,3 +1,5 @@
+<!-- testing commit signing -->
+
 # mcpi — Macaroni Pi MCP Server
 
 An MCP (Model Context Protocol) server for Raspberry Pi 5 that lets AI assistants
